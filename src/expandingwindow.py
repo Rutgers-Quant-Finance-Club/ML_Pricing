@@ -50,8 +50,10 @@ class ExpandingWindow:
 
     # this method gives us X - input variables - and Y - target variables, for any dataframe
     @staticmethod
-    def get_features_and_target(df, target_col='ret'):
+    def get_features_and_target(df, indicator_matrix, target_col='ret'):
         drop_cols = ['DATE', 'year_month', 'permno', target_col]
-        X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+        X = df.drop(columns=[c for c in drop_cols if c in df.columns]) 
+        indicators = indicator_matrix[X.columns]
+        X = np.hstack([X.values, indicators.values])
         y = df[target_col]
         return X, y
