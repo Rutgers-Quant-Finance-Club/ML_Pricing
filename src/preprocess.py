@@ -1,64 +1,49 @@
 import pandas as pd
 import numpy as np
 
+
 class DataPipeline:
 
     def __init__(self, filepath):
         self.filepath = filepath
         self.df = None
+        self.indicator_matrix = None
 
     def load(self):
-        # load csv into a pd dataframe; cast values to np.float32's for memory purposes; turn values in date to proper datetime objects; sort rows by permno, and inside permno groups, date
-        self.df = pd.read_csv(self.filepath, dtype={col: np.float32 for col in pd.read_csv(self.filepath, nrows=0).columns if col != 'DATE'})
-        self.df['DATE'] = pd.to_datetime(self.df['DATE'].astype(str).str.split('.').str[0], format='%Y%m%d')
+        self.df = pd.read_csv(self.filepath)
+        self.df['DATE'] = pd.to_datetime(self.df['DATE'], errors='coerce', format='%Y%m%d')
+        self.df['year_month'] = self.df['DATE'].dt.to_period('M')
         self.df = self.df.sort_values(['permno', 'DATE']).reset_index(drop=True)
-
-        # create a return column using 'mom1m' as a proxy; 'mom1m' is the current stocks value - so, shifting each mom1m by -1 lets return equal the NEXT months mom1m
         self.df['ret'] = self.df.groupby('permno')['mom1m'].shift(-1)
 
-        
-        # create a new column such that it is the date with day truncated
-        self.df['year_month'] = self.df['DATE'].dt.to_period('M')
-
-        print(f"Memory: {self.df.memory_usage(deep=True).sum() / 1e9:.2f} GB")
         print(f"Loaded {self.df.shape[0]} rows and {self.df.shape[1]} columns")
-
         return self
 
     def impute_missing(self):
-        exclude = ['ret', 'permno']
-        num_cols = [c for c in self.df.select_dtypes(include='number').columns if c not in exclude]
+        num_cols = self.df.select_dtypes(include='number').columns
         self.indicator_matrix = self.df[num_cols].isna().astype(int)
 
-        # for all numerical columnms, fill NA values with the median of that columns feature with respect to all other rows in the same year_month
-        for col in num_cols:
-            self.df[col] = self.df[col].fillna(
-                self.df.groupby('year_month')[col].transform('median')
-            )
-        # imputation of numeric columns using median of the respective month/year
-        # following the direction of original paper
-        # no non-numeric columns upon further investigation
-        
-        # remaining non na columns (dropping the leftover NA)
-        mask = self.df[num_cols].notna().all(axis=1)
+        # fill all numeric columns at once with cross-sectional monthly median
+        self.df[num_cols] = self.df[num_cols].fillna(
+            self.df.groupby('year_month')[num_cols].transform('median')
+        )
 
-        # drop
+        # drop any rows where imputation couldn't fill (whole month was NaN)
+        mask = self.df[num_cols].notna().all(axis=1)
         self.df = self.df.loc[mask].reset_index(drop=True)
         self.indicator_matrix = self.indicator_matrix.loc[mask].reset_index(drop=True)
 
-        # ensure indicator matrix and cleaned data is same shape
-        print(f"Cleaned Data: {self.df.shape[0]} rows and {self.df.shape[1]} columns")
-        print(f"Indicator Matrix Shape: {self.indicator_matrix.shape[0]} rows and {self.indicator_matrix.shape[1]} columns")
+        print(f"After imputation: {self.df.shape[0]} rows, {self.df.shape[1]} columns")
         return self
 
     def normalize(self):
-        exclude = ['DATE', 'year_month', 'permno', 'ret']  
-        # for all numerical columns except those in exclude, normalize them to values between -1 and 1 inclusive to avoid heavy outliers
+        exclude = ['DATE', 'year_month', 'permno', 'ret']
         num_cols = [c for c in self.df.select_dtypes(include='number').columns if c not in exclude]
+
         for col in num_cols:
             self.df[col] = self.df.groupby('year_month')[col].transform(
                 lambda x: (x.rank(method='average') - 1) / (len(x) - 1) * 2 - 1
             )
+
         print("Features normalized to [-1, 1]")
         return self
-        # cross-sectional rank normalization

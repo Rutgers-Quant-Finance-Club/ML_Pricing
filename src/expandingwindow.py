@@ -35,13 +35,6 @@ class ExpandingWindow:
             val_df   = df[(df[date_col] >= train_end) & (df[date_col] < val_end)]
             test_df  = df[(df[date_col] >= val_end)   & (df[date_col] < test_end)]
 
-            print(
-                f"Train: {train_df[date_col].min().date()} → {train_df[date_col].max().date()} "
-                f"({len(train_df)} rows) | "
-                f"Val: {val_df[date_col].min().date()} → {val_df[date_col].max().date()} | "
-                f"Test: {test_df[date_col].min().date()} → {test_df[date_col].max().date()}"
-            )
-
             # in tuple format, return the data frames
             yield train_df, val_df, test_df
 
@@ -53,7 +46,7 @@ class ExpandingWindow:
     def get_features_and_target(df, indicator_matrix, target_col='ret'):
         drop_cols = ['DATE', 'year_month', 'permno', target_col]
         X = df.drop(columns=[c for c in drop_cols if c in df.columns]) 
-        indicators = indicator_matrix[X.columns]
+        indicators = indicator_matrix.loc[df.index, X.columns]
         X = np.hstack([X.values, indicators.values])
         y = df[target_col]
         return X, y
